@@ -251,10 +251,13 @@
 			const password = document.getElementById('register-password').value;
 
 			try {
+				const formData = new FormData();
+				formData.append('email', email);
+				formData.append('password', password);
+
 				const response = await fetch('/api/register', {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-					body: 'email=' + encodeURIComponent(email) + '&password=' + encodeURIComponent(password)
+					body: formData
 				});
 
 				const data = await response.json();
@@ -282,10 +285,13 @@
 			const password = document.getElementById('login-password').value;
 
 			try {
+				const formData = new FormData();
+				formData.append('email', email);
+				formData.append('password', password);
+
 				const response = await fetch('/api/login', {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-					body: 'email=' + encodeURIComponent(email) + '&password=' + encodeURIComponent(password)
+					body: formData
 				});
 
 				const data = await response.json();
@@ -311,10 +317,13 @@
 			const code = document.getElementById('2fa-code').value;
 
 			try {
+				const formData = new FormData();
+				formData.append('email', currentEmail);
+				formData.append('code', code);
+
 				const response = await fetch('/api/verify-2fa', {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-					body: 'email=' + encodeURIComponent(currentEmail) + '&code=' + encodeURIComponent(code)
+					body: formData
 				});
 
 				const data = await response.json();
