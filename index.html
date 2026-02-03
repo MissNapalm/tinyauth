@@ -222,8 +222,13 @@
 		let token = localStorage.getItem('token');
 		let currentEmail = null;
 
-		if (token) {
+		// Check if token exists and email is stored
+		if (token && localStorage.getItem('email')) {
 			showDashboard();
+		} else {
+			// Clear any stale session data
+			localStorage.removeItem('token');
+			localStorage.removeItem('email');
 		}
 
 		function toggleForms() {
@@ -255,12 +260,15 @@
 				formData.append('email', email);
 				formData.append('password', password);
 
+				console.log('Sending register request for:', email);
 				const response = await fetch('/api/register', {
 					method: 'POST',
 					body: formData
 				});
 
+				console.log('Register response status:', response.status);
 				const data = await response.json();
+				console.log('Register response data:', data);
 
 				if (response.ok) {
 					showMessage('Registered! Please login.', 'success');
@@ -273,6 +281,7 @@
 					showMessage(data.error || 'Registration failed', 'error');
 				}
 			} catch (err) {
+				console.error('Register error:', err);
 				showMessage('Error: ' + err.message, 'error');
 			}
 		}
@@ -289,12 +298,15 @@
 				formData.append('email', email);
 				formData.append('password', password);
 
+				console.log('Sending login request for:', email);
 				const response = await fetch('/api/login', {
 					method: 'POST',
 					body: formData
 				});
 
+				console.log('Login response status:', response.status);
 				const data = await response.json();
+				console.log('Login response data:', data);
 
 				if (response.ok) {
 					currentEmail = email;
@@ -306,6 +318,7 @@
 					showMessage(data.error || 'Login failed', 'error');
 				}
 			} catch (err) {
+				console.error('Login error:', err);
 				showMessage('Error: ' + err.message, 'error');
 			}
 		}
