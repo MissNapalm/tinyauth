@@ -10,6 +10,7 @@ import (
 	"net/smtp"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -20,6 +21,61 @@ import (
 
 var db *sql.DB
 var jwtSecret = []byte("super-secret-key")
+
+// Rate limiter - track login/register attempts per IP
+type RateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time
+}
+
+var limiter = &RateLimiter{
+	attempts: make(map[string][]time.Time),
+}
+
+// Check if IP is rate limited (max 5 attempts per 15 minutes)
+func (rl *RateLimiter) IsLimited(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	window := 15 * time.Minute
+
+	// Get attempts for this IP
+	attempts := rl.attempts[ip]
+
+	// Remove old attempts outside the window
+	var recentAttempts []time.Time
+	for _, t := range attempts {
+		if now.Sub(t) < window {
+			recentAttempts = append(recentAttempts, t)
+		}
+	}
+
+	// Update stored attempts
+	rl.attempts[ip] = recentAttempts
+
+	// Check if limited (5 attempts per 15 min)
+	if len(recentAttempts) >= 5 {
+		return true
+	}
+
+	// Record this new attempt
+	rl.attempts[ip] = append(recentAttempts, now)
+	return false
+}
+
+// Get client IP address
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for proxies)
+	forwarded := r.Header.Get("X-Forwarded-For")
+	if forwarded != "" {
+		// Take the first IP in the list
+		ips := strings.Split(forwarded, ",")
+		return strings.TrimSpace(ips[0])
+	}
+	// Fall back to RemoteAddr
+	return strings.Split(r.RemoteAddr, ":")[0]
+}
 
 type User struct {
 	Email    string `json:"email"`
@@ -128,6 +184,13 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 func register(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	// Rate limiting
+	clientIP := getClientIP(r)
+	if limiter.IsLimited(clientIP) {
+		json.NewEncoder(w).Encode(map[string]string{"error": "Too many registration attempts. Try again in 15 minutes."})
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
 		return
@@ -167,6 +230,13 @@ func register(w http.ResponseWriter, r *http.Request) {
 func login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	
+	// Rate limiting
+	clientIP := getClientIP(r)
+	if limiter.IsLimited(clientIP) {
+		json.NewEncoder(w).Encode(map[string]string{"error": "Too many login attempts. Try again in 15 minutes."})
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
 		return
