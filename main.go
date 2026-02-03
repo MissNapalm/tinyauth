@@ -152,14 +152,8 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send email
-	err = sendEmail(email, code)
-	if err != nil {
-		log.Printf("Email error: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "Error sending code"})
-		return
-	}
+	// Send email in background (non-blocking)
+	go sendEmail(email, code)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "2FA code sent to email"})
