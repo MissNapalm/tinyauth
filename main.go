@@ -38,9 +38,9 @@ func init() {
 
 func main() {
 	http.HandleFunc("/", serveIndex)
-	http.HandleFunc("/api/register", register)
-	http.HandleFunc("/api/login", login)
-	http.HandleFunc("/api/logout", logout)
+	http.HandleFunc("/api/register", corsMiddleware(register))
+	http.HandleFunc("/api/login", corsMiddleware(login))
+	http.HandleFunc("/api/logout", corsMiddleware(logout))
 
 	port := ":3000"
 	if p := os.Getenv("PORT"); p != "" {
@@ -162,4 +162,19 @@ func validateToken(tokenString string) (string, error) {
 	}
 
 	return claims.Email, nil
+}
+
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next(w, r)
+	})
 }
