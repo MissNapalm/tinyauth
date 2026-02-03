@@ -119,6 +119,10 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse both form-urlencoded and multipart form data
+	r.ParseForm()
+	r.ParseMultipartForm(10 << 20) // 10MB max
+	
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 
