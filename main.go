@@ -88,14 +88,8 @@ func register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse both form-urlencoded and multipart form data
-	r.ParseForm()
-	r.ParseMultipartForm(10 << 20) // 10MB max
-	
 	email := r.FormValue("email")
 	password := r.FormValue("password")
-	
-	log.Printf("Register attempt - email: '%s', password length: %d, content-type: %s", email, len(password), r.Header.Get("Content-Type"))
 
 	if email == "" || password == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "Email and password required"})
@@ -125,16 +119,11 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse both form-urlencoded and multipart form data
-	r.ParseForm()
-	r.ParseMultipartForm(10 << 20) // 10MB max
-	
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 
 	var user User
 	var hashedPassword string
-	log.Printf("Login attempt - email: '%s', password length: %d, content-type: %s", email, len(password), r.Header.Get("Content-Type"))
 	err := db.QueryRow("SELECT email, password FROM users WHERE email = ?", email).
 		Scan(&user.Email, &hashedPassword)
 	if err != nil {
@@ -178,10 +167,6 @@ func verify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse both form-urlencoded and multipart form data
-	r.ParseForm()
-	r.ParseMultipartForm(10 << 20) // 10MB max
-	
 	email := r.FormValue("email")
 	code := r.FormValue("code")
 
