@@ -139,6 +139,16 @@
 		.logout-btn:hover {
 			background: #c0392b;
 		}
+
+		.info-text {
+			background: #f0f8ff;
+			border-left: 4px solid #667eea;
+			padding: 12px;
+			margin-bottom: 20px;
+			border-radius: 4px;
+			font-size: 13px;
+			color: #333;
+		}
 	</style>
 </head>
 <body>
@@ -146,6 +156,7 @@
 		<div class="card">
 			<div id="message"></div>
 
+			<!-- Login Form -->
 			<div id="login-form">
 				<h1>Login</h1>
 				<form onsubmit="handleLogin(event)">
@@ -164,6 +175,22 @@
 				</div>
 			</div>
 
+			<!-- 2FA Form -->
+			<div id="2fa-form" class="hidden">
+				<h1>Enter 2FA Code</h1>
+				<div class="info-text">
+					A 6-digit code has been sent to your email. Please enter it below.
+				</div>
+				<form onsubmit="handleVerify2FA(event)">
+					<div class="form-group">
+						<label>2FA Code</label>
+						<input type="text" id="2fa-code" placeholder="000000" maxlength="6" required>
+					</div>
+					<button type="submit">Verify</button>
+				</form>
+			</div>
+
+			<!-- Register Form -->
 			<div id="register-form" class="hidden">
 				<h1>Register</h1>
 				<form onsubmit="handleRegister(event)">
@@ -182,6 +209,7 @@
 				</div>
 			</div>
 
+			<!-- Dashboard -->
 			<div id="dashboard" class="hidden dashboard">
 				<h2>Welcome!</h2>
 				<p id="user-email"></p>
@@ -192,6 +220,8 @@
 
 	<script>
 		let token = localStorage.getItem('token');
+		let currentEmail = null;
+
 		if (token) {
 			showDashboard();
 		}
@@ -261,11 +291,11 @@
 				const data = await response.json();
 
 				if (response.ok) {
-					token = data.token;
-					localStorage.setItem('token', token);
-					localStorage.setItem('email', email);
-					showMessage('Login successful!', 'success');
-					setTimeout(showDashboard, 1000);
+					currentEmail = email;
+					// Hide login form, show 2FA form
+					document.getElementById('login-form').classList.add('hidden');
+					document.getElementById('2fa-form').classList.remove('hidden');
+					showMessage('Code sent to your email', 'success');
 				} else {
 					showMessage(data.error || 'Login failed', 'error');
 				}
@@ -274,8 +304,38 @@
 			}
 		}
 
+		async function handleVerify2FA(e) {
+			e.preventDefault();
+			clearMessage();
+
+			const code = document.getElementById('2fa-code').value;
+
+			try {
+				const response = await fetch('/api/verify-2fa', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+					body: 'email=' + encodeURIComponent(currentEmail) + '&code=' + encodeURIComponent(code)
+				});
+
+				const data = await response.json();
+
+				if (response.ok) {
+					token = data.token;
+					localStorage.setItem('token', token);
+					localStorage.setItem('email', currentEmail);
+					showMessage('Login successful!', 'success');
+					setTimeout(showDashboard, 1000);
+				} else {
+					showMessage(data.error || 'Invalid code', 'error');
+				}
+			} catch (err) {
+				showMessage('Error: ' + err.message, 'error');
+			}
+		}
+
 		function showDashboard() {
 			document.getElementById('login-form').classList.add('hidden');
+			document.getElementById('2fa-form').classList.add('hidden');
 			document.getElementById('register-form').classList.add('hidden');
 			document.getElementById('dashboard').classList.remove('hidden');
 			document.getElementById('user-email').textContent = 'Logged in as: ' + localStorage.getItem('email');
@@ -284,10 +344,13 @@
 		function handleLogout() {
 			localStorage.removeItem('token');
 			localStorage.removeItem('email');
+			currentEmail = null;
 			document.getElementById('dashboard').classList.add('hidden');
 			document.getElementById('login-form').classList.remove('hidden');
+			document.getElementById('2fa-form').classList.add('hidden');
 			document.getElementById('login-email').value = '';
 			document.getElementById('login-password').value = '';
+			document.getElementById('2fa-code').value = '';
 			clearMessage();
 			showMessage('Logged out successfully', 'success');
 			setTimeout(clearMessage, 2000);

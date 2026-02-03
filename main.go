@@ -1,14 +1,18 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"net/smtp"
 	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -27,6 +31,9 @@ type Claims struct {
 }
 
 func init() {
+	// Load .env file
+	godotenv.Load()
+
 	var err error
 	db, err = sql.Open("sqlite3", "./auth.db")
 	if err != nil {
@@ -40,6 +47,7 @@ func main() {
 	http.HandleFunc("/", serveIndex)
 	http.HandleFunc("/api/register", corsMiddleware(register))
 	http.HandleFunc("/api/login", corsMiddleware(login))
+	http.HandleFunc("/api/verify-2fa", corsMiddleware(verify2FA))
 	http.HandleFunc("/api/logout", corsMiddleware(logout))
 
 	port := ":3000"
@@ -57,6 +65,8 @@ func initDB() {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		email TEXT UNIQUE NOT NULL,
 		password TEXT NOT NULL,
+		two_fa_code TEXT,
+		two_fa_expires INTEGER,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	`
@@ -129,7 +139,76 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate 6-digit 2FA code
+	code := generate2FACode()
+	expiresAt := time.Now().Add(10 * time.Minute).Unix()
+
+	// Store code in database
+	_, err = db.Exec("UPDATE users SET two_fa_code = ?, two_fa_expires = ? WHERE email = ?", 
+		code, expiresAt, email)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Error generating code"})
+		return
+	}
+
+	// Send email
+	err = sendEmail(email, code)
+	if err != nil {
+		log.Printf("Email error: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Error sending code"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "2FA code sent to email"})
+}
+
+func verify2FA(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	email := r.FormValue("email")
+	code := r.FormValue("code")
+
+	var storedCode string
+	var expiresAt int64
+	err := db.QueryRow("SELECT two_fa_code, two_fa_expires FROM users WHERE email = ?", email).
+		Scan(&storedCode, &expiresAt)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid email"})
+		return
+	}
+
+	// Check if code expired
+	if time.Now().Unix() > expiresAt {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Code expired"})
+		return
+	}
+
+	// Check if code matches
+	if code != storedCode {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid code"})
+		return
+	}
+
+	// Clear the code
+	_, err = db.Exec("UPDATE users SET two_fa_code = NULL, two_fa_expires = NULL WHERE email = ?", email)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Error updating user"})
+		return
+	}
+
+	// Generate JWT token
 	token := generateToken(email)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
@@ -177,4 +256,47 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	})
+}
+
+func generate2FACode() string {
+	b := make([]byte, 3)
+	rand.Read(b)
+	num := int(b[0])<<16 | int(b[1])<<8 | int(b[2])
+	return fmt.Sprintf("%06d", num%1000000)
+}
+
+func sendEmail(toEmail, code string) error {
+	// Get SMTP config from .env
+	smtpHost := os.Getenv("SMTP_HOST")
+	smtpPort := os.Getenv("SMTP_PORT")
+	smtpUser := os.Getenv("SMTP_USER")
+	smtpPassword := os.Getenv("SMTP_PASSWORD")
+	smtpFrom := os.Getenv("SMTP_FROM")
+
+	// If env vars not set, log and return error
+	if smtpHost == "" || smtpPort == "" || smtpUser == "" || smtpPassword == "" {
+		err := fmt.Errorf("SMTP credentials not configured in .env")
+		log.Printf("Email error: %v", err)
+		return err
+	}
+
+	to := []string{toEmail}
+	subject := "Subject: Your 2FA Code\r\n"
+	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\r\n"
+	body := fmt.Sprintf(`<html><body><h2>Your 2FA Code</h2><p><strong>%s</strong></p><p>This code expires in 10 minutes.</p></body></html>`, code)
+
+	message := subject + mime + "\r\n" + body
+
+	auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpHost)
+	addr := smtpHost + ":" + smtpPort
+
+	log.Printf("Sending 2FA code to %s via %s:%s", toEmail, smtpHost, smtpPort)
+	err := smtp.SendMail(addr, auth, smtpFrom, to, []byte(message))
+	if err != nil {
+		log.Printf("Failed to send email: %v", err)
+		return err
+	}
+
+	log.Printf("2FA code sent successfully to %s", toEmail)
+	return nil
 }
