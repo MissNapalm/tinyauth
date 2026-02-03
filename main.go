@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -41,6 +42,50 @@ func init() {
 	}
 
 	initDB()
+}
+
+// Sanitize user input - trim whitespace and validate format
+func sanitizeEmail(email string) (string, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return "", fmt.Errorf("email cannot be empty")
+	}
+	if len(email) > 254 {
+		return "", fmt.Errorf("email too long")
+	}
+	if !strings.Contains(email, "@") {
+		return "", fmt.Errorf("invalid email format")
+	}
+	return email, nil
+}
+
+// Sanitize password - trim whitespace and validate minimum length
+func sanitizePassword(password string) (string, error) {
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return "", fmt.Errorf("password cannot be empty")
+	}
+	if len(password) < 6 {
+		return "", fmt.Errorf("password must be at least 6 characters")
+	}
+	if len(password) > 128 {
+		return "", fmt.Errorf("password too long")
+	}
+	return password, nil
+}
+
+// Sanitize 2FA code - must be 6 digits
+func sanitizeCode(code string) (string, error) {
+	code = strings.TrimSpace(code)
+	if len(code) != 6 {
+		return "", fmt.Errorf("code must be 6 digits")
+	}
+	for _, c := range code {
+		if c < '0' || c > '9' {
+			return "", fmt.Errorf("code must contain only digits")
+		}
+	}
+	return code, nil
 }
 
 func main() {
@@ -91,8 +136,16 @@ func register(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 
-	if email == "" || password == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "Email and password required"})
+	// Sanitize inputs
+	email, err := sanitizeEmail(email)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	password, err = sanitizePassword(password)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -126,9 +179,22 @@ func login(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 
+	// Sanitize inputs
+	email, err := sanitizeEmail(email)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	password, err = sanitizePassword(password)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
 	var user User
 	var hashedPassword string
-	err := db.QueryRow("SELECT email, password FROM users WHERE email = ?", email).
+	err = db.QueryRow("SELECT email, password FROM users WHERE email = ?", email).
 		Scan(&user.Email, &hashedPassword)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -174,9 +240,22 @@ func verify2FA(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
 	code := r.FormValue("code")
 
+	// Sanitize inputs
+	email, err := sanitizeEmail(email)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	code, err = sanitizeCode(code)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
 	var storedCode string
 	var expiresAt int64
-	err := db.QueryRow("SELECT two_fa_code, two_fa_expires FROM users WHERE email = ?", email).
+	err = db.QueryRow("SELECT two_fa_code, two_fa_expires FROM users WHERE email = ?", email).
 		Scan(&storedCode, &expiresAt)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
